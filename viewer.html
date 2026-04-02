@@ -746,7 +746,15 @@ document.addEventListener('keydown', e => {
   }
   if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
     e.preventDefault();
-    audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + (e.key === 'ArrowRight' ? 5 : -5)));
+    if (!ALL_WPS.length) return;
+    const ms = audio.currentTime * 1000;
+    if (e.key === 'ArrowRight') {
+      const next = ALL_WPS.find(wp => wp.start > ms + 50);
+      if (next) audio.currentTime = next.start / 1000;
+    } else {
+      const prev = [...ALL_WPS].reverse().find(wp => wp.start < ms - 50);
+      if (prev) audio.currentTime = prev.start / 1000;
+    }
   }
 });
 </script>
