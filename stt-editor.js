@@ -10,6 +10,12 @@ let _editLog = [], _logHandle = null;
 // ══════════════════════════════════════════════
 const SIMPLE_RE = /^(네|예|어|음|아|에|응|네네|네 네|어 네|아 네|네 에|어 음|아 네 네|네 네 어|시죠 네|세시|분)$/;
 function isSimple(t) { return SIMPLE_RE.test(t.trim()); }
+const _logTimeFmt = new Intl.DateTimeFormat('ko-KR', {
+  year: '2-digit', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+});
+function fmtLogTime(iso) { return _logTimeFmt.format(new Date(iso)); }
+
 function fmtTime(ms) {
   const total = Math.floor(ms / 1000);
   const m = Math.floor(total / 60), s = total % 60;
@@ -233,14 +239,15 @@ function loadConversation(leftRaw, rightRaw, leftEdit, rightEdit, wavUrl, title,
   // 탭 초기화
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.chat-panel').forEach(p => p.classList.remove('active'));
-  document.querySelector('[data-tab="wordpiece"]').classList.add('active');
-  document.getElementById('panel-wordpiece').classList.add('active');
+  document.querySelector('[data-tab="edit"]').classList.add('active');
+  document.getElementById('panel-edit').classList.add('active');
 
   document.getElementById('panel-wordpiece').innerHTML = renderTab1();
   document.getElementById('panel-inline-chip').innerHTML = renderTab6();
   document.getElementById('panel-edit').innerHTML = renderEditTab();
 
   document.getElementById('placeholder').classList.add('hidden');
+  focusEditWord(0);
 }
 
 // ══════════════════════════════════════════════
@@ -287,6 +294,11 @@ async function openFolderPicker() {
   for await (const [name, handle] of _dirHandle.entries()) {
     if (handle.kind !== 'file') continue;
     if (name.endsWith('_left_edit.json') || name.endsWith('_right_edit.json')) continue;
+    if (name.endsWith('_log.json')) {
+      const base = name.slice(0, -9);
+      (groups[base] = groups[base] || {}).logHandle = handle;
+      continue;
+    }
     if (name.endsWith('_left.json')) {
       const base = name.slice(0, -10);
       (groups[base] = groups[base] || {}).leftHandle = handle;
@@ -309,13 +321,31 @@ async function openFolderPicker() {
     list.innerHTML = '<p class="no-conv">wav + _left.json + _right.json 세트를 찾을 수 없습니다.</p>';
     return;
   }
-  list.innerHTML = _conversations.map((c, i) =>
-    `<div class="conv-item" data-idx="${i}" onclick="selectConv(${i})">${c.id}</div>`
+
+  await Promise.all(_conversations.map(async c => {
+    if (!c.logHandle) { c.hasLog = false; return; }
+    const file = await c.logHandle.getFile();
+    c.hasLog = file.size > 5;
+  }));
+
+  renderConvList();
+}
+
+function renderConvList() {
+  document.getElementById('conv-list').innerHTML = _conversations.map((c, i) =>
+    `<div class="conv-item${c.hasLog ? ' has-log' : ''}" data-idx="${i}" onclick="selectConv(${i})">${c.id}</div>`
   ).join('');
 }
 
+function updateCurrentConvItem() {
+  const idx = _conversations.indexOf(_currentConv);
+  if (idx === -1) return;
+  const el = document.querySelector(`.conv-item[data-idx="${idx}"]`);
+  if (el && _editLog.length > 0) el.classList.add('has-log');
+}
+
 async function selectConv(idx) {
-  document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
+  renderConvList();
   document.querySelector(`.conv-item[data-idx="${idx}"]`).classList.add('active');
   const c = _conversations[idx];
   _currentConv = c;
@@ -414,10 +444,11 @@ function renderLogPanel() {
   }
   list.innerHTML = _editLog.map((entry, i) =>
     `<div class="log-entry" onclick="jumpToLogEntry(${i})">
-      <span class="log-time">[${entry.time}]</span>
+      <span class="log-time">[${fmtLogTime(entry.time)}]</span>
       <span class="log-original">${entry.original}</span>
-      <span class="log-arrow">→</span>
+      <span class="log-arrow"> → </span>
       <span class="log-edited">${entry.edited}</span>
+      <span class="log-time"> [${fmtTime(entry.wordStart)}]</span>
     </div>`
   ).join('');
 }
@@ -562,12 +593,11 @@ async function saveEditBubble() {
   await writeEditFile(item.ch);
 
   if (newText !== prevText) {
-    const now = new Date();
-    const time = [now.getHours(), now.getMinutes(), now.getSeconds()]
-      .map(n => String(n).padStart(2, '0')).join(':');
+    const time = new Date().toISOString();
     _editLog.push({ time, original: prevText, edited: newText,
       wordStart: item.start, ch: item.ch, sentIdx: item.sentIdx, wpIdx: item.wpIdx });
     await writeLogFile();
+    updateCurrentConvItem();
   }
 
   updateEditCount();
