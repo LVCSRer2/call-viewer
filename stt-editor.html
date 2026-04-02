@@ -48,6 +48,13 @@
     }
     .tab-btn:hover { color: rgba(255,255,255,0.8); background: rgba(255,255,255,0.07); }
     .tab-btn.active { color: #fff; background: rgba(255,255,255,0.12); }
+    #edit-count {
+      font-size: 11px; color: rgba(255,255,255,0.55);
+      background: rgba(255,255,255,0.08); border-radius: 10px;
+      padding: 2px 9px; white-space: nowrap; flex-shrink: 0;
+      display: none;
+    }
+    #edit-count.has-edits { color: #7eff7e; background: rgba(126,255,126,0.12); }
     .header-legend {
       display: flex; align-items: center; gap: 10px;
       font-size: 11px; color: rgba(255,255,255,0.45);
@@ -337,6 +344,7 @@
       <button class="tab-btn" data-tab="inline-chip">인라인 병합</button>
       <button class="tab-btn" data-tab="edit">편집</button>
     </div>
+    <span id="edit-count"></span>
     <div class="header-legend">
       <div class="legend-item"><div class="legend-dot left"></div><span>고객</span></div>
       <div class="legend-item"><div class="legend-dot right"></div><span>상담사</span></div>
@@ -581,6 +589,7 @@ function loadConversation(leftRaw, rightRaw, leftEdit, rightEdit, wavUrl, title,
   ALL_WPS = buildWpLookup();
   _editTimeline = buildEditTimeline();
   _editIdx = 0;
+  updateEditCount();
 
   document.getElementById('conv-title').textContent = title;
   document.getElementById('audio-label').textContent = wavName;
@@ -728,6 +737,15 @@ async function writeEditFile(side) {
 // ══════════════════════════════════════════════
 // EDIT TAB
 // ══════════════════════════════════════════════
+function updateEditCount() {
+  const count = _editTimeline.filter(item => item.edited !== item.original).length;
+  const el = document.getElementById('edit-count');
+  if (!_editTimeline.length) { el.style.display = 'none'; return; }
+  el.style.display = 'inline';
+  el.textContent = `수정 ${count}개`;
+  el.className = count > 0 ? 'has-edits' : '';
+}
+
 function buildEditTimeline() {
   const items = [];
   LEFT_RAW.forEach((s, si) => {
@@ -845,6 +863,7 @@ async function saveEditBubble() {
   if (item.ch === 'left') LEFT_EDIT[item.sentIdx].word_pieces[item.wpIdx].word = newText;
   else RIGHT_EDIT[item.sentIdx].word_pieces[item.wpIdx].word = newText;
   await writeEditFile(item.ch);
+  updateEditCount();
 }
 
 function cancelEditBubble() {
