@@ -837,8 +837,12 @@ function playWord(e, el) {
   if (isNaN(startMs) || startMs < 0) return;
   _navIdx = null;
   audio.currentTime = startMs / 1000;
-  audio.play();
-  playBtn.textContent = '⏸';
+  if (!audio.paused) {
+    audio.play();
+    playBtn.textContent = '⏸';
+  } else {
+    updateHighlight(startMs);
+  }
 }
 
 // 칩 클릭 시 재생
