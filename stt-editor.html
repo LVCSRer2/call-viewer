@@ -311,12 +311,18 @@
 
     /* ── Sidebar ── */
     #sidebar {
-      width: 220px; flex-shrink: 0;
+      width: var(--sidebar-w, 220px); flex-shrink: 0;
       background: #16213e;
       display: flex; flex-direction: column;
       height: 100vh;
       border-right: 1px solid rgba(255,255,255,0.08);
     }
+    #splitter {
+      width: 5px; flex-shrink: 0; cursor: col-resize;
+      background: transparent; transition: background 0.15s;
+      height: 100vh;
+    }
+    #splitter:hover, #splitter.dragging { background: #e94560; }
     .sidebar-top {
       padding: 10px;
       border-bottom: 1px solid rgba(255,255,255,0.08);
@@ -372,6 +378,9 @@
     <p class="no-conv">폴더를 선택하세요</p>
   </div>
 </div>
+
+<!-- ── Splitter ── -->
+<div id="splitter"></div>
 
 <!-- ── Main ── -->
 <div id="main">

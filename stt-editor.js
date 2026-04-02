@@ -1,4 +1,49 @@
 // ══════════════════════════════════════════════
+// SPLITTER
+// ══════════════════════════════════════════════
+(function () {
+  const MIN_W = 120, MAX_W = 480;
+  const STORAGE_KEY = 'stt-sidebar-w';
+
+  function applyWidth(w) {
+    document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+  }
+
+  const saved = parseInt(localStorage.getItem(STORAGE_KEY));
+  if (saved >= MIN_W && saved <= MAX_W) applyWidth(saved);
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const splitter = document.getElementById('splitter');
+    let dragging = false, startX = 0, startW = 0;
+
+    splitter.addEventListener('mousedown', e => {
+      dragging = true;
+      startX = e.clientX;
+      startW = document.getElementById('sidebar').offsetWidth;
+      splitter.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+    });
+
+    document.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const w = Math.min(MAX_W, Math.max(MIN_W, startW + (e.clientX - startX)));
+      applyWidth(w);
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      splitter.classList.remove('dragging');
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      const w = document.getElementById('sidebar').offsetWidth;
+      localStorage.setItem(STORAGE_KEY, w);
+    });
+  });
+})();
+
+// ══════════════════════════════════════════════
 // DATA (동적으로 채워짐)
 // ══════════════════════════════════════════════
 let LEFT_RAW = [], RIGHT_RAW = [], ORIGINAL_BUBBLES = [], ALL_WPS = [];
