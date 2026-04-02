@@ -815,5 +815,58 @@ document.addEventListener('keydown', e => {
     _navTs = Date.now();
     updateHighlight(ALL_WPS[_navIdx].start);
   }
+  if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    if (!ALL_WPS.length) return;
+    const activePanel = document.querySelector('.chat-panel.active');
+    if (!activePanel) return;
+
+    // 현재 하이라이트된 word 요소 찾기
+    const curEl = activePanel.querySelector('.wp.wp-playing')
+      || (() => {
+        // 하이라이트 없으면 _navIdx 기준 요소 찾기
+        if (_navIdx === null) return null;
+        const ms = ALL_WPS[_navIdx].start;
+        return [...activePanel.querySelectorAll('.wp[data-start]')]
+          .find(el => parseFloat(el.dataset.start) === ms) || null;
+      })();
+    if (!curEl) return;
+
+    const curRect = curEl.getBoundingClientRect();
+    const curCenterX = curRect.left + curRect.width / 2;
+    const allWpEls = [...activePanel.querySelectorAll('.wp[data-start]')];
+
+    let candidates;
+    if (e.key === 'ArrowDown') {
+      // 현재 word 아래에 있는 요소들 (top이 현재 bottom보다 큰)
+      candidates = allWpEls.filter(el => el.getBoundingClientRect().top > curRect.bottom - 2);
+      if (!candidates.length) return;
+      const minTop = Math.min(...candidates.map(el => el.getBoundingClientRect().top));
+      // 바로 아랫줄만 (minTop 기준 한 줄 높이 이내)
+      candidates = candidates.filter(el => el.getBoundingClientRect().top <= minTop + curRect.height);
+    } else {
+      // 현재 word 위에 있는 요소들 (bottom이 현재 top보다 작은)
+      candidates = allWpEls.filter(el => el.getBoundingClientRect().bottom < curRect.top + 2);
+      if (!candidates.length) return;
+      const maxBottom = Math.max(...candidates.map(el => el.getBoundingClientRect().bottom));
+      // 바로 윗줄만
+      candidates = candidates.filter(el => el.getBoundingClientRect().bottom >= maxBottom - curRect.height);
+    }
+
+    // X 중심이 가장 가까운 word 선택
+    const target = candidates.reduce((best, el) => {
+      const cx = el.getBoundingClientRect().left + el.getBoundingClientRect().width / 2;
+      const bestCx = best.getBoundingClientRect().left + best.getBoundingClientRect().width / 2;
+      return Math.abs(cx - curCenterX) < Math.abs(bestCx - curCenterX) ? el : best;
+    });
+
+    const targetStart = parseFloat(target.dataset.start);
+    const idx = ALL_WPS.findIndex(wp => wp.start === targetStart);
+    if (idx === -1) return;
+    _navIdx = idx;
+    audio.currentTime = ALL_WPS[_navIdx].start / 1000;
+    _navTs = Date.now();
+    updateHighlight(ALL_WPS[_navIdx].start);
+  }
 });
 </script>
