@@ -223,6 +223,35 @@
       border-color: rgba(0,0,0,0.15);
     }
 
+    /* ── Edit tab ── */
+    .edit-bubble-row { display: flex; margin-bottom: 6px; }
+    .edit-bubble-row.left { justify-content: flex-start; }
+    .edit-bubble-row.right { justify-content: flex-end; }
+    .edit-bubble {
+      max-width: 68%; padding: 10px 14px;
+      border-radius: 18px; font-size: 14px; line-height: 1.65;
+      border: 2px solid transparent; cursor: pointer; transition: all 0.15s;
+      word-break: keep-all;
+    }
+    .edit-bubble.left { background: #fff; border-color: #e8e8ec; border-top-left-radius: 4px; }
+    .edit-bubble.right { background: #0f3460; color: #fff; border-top-right-radius: 4px; }
+    .edit-bubble.focused { border-color: #e94560 !important; }
+    .edit-bubble.playing-edit { outline: 2.5px solid rgba(233,69,96,0.4); outline-offset: 1px; }
+    .edit-original {
+      font-size: 11px; opacity: 0.38; margin-bottom: 5px;
+      text-decoration: line-through; word-break: keep-all;
+    }
+    .edit-text { word-break: keep-all; }
+    .edit-text.modified { color: #1a7a1a; }
+    .edit-bubble.right .edit-text.modified { color: #7eff7e; }
+    .edit-input {
+      width: 100%; border: none; background: transparent;
+      font-size: 14px; font-family: inherit; line-height: 1.65;
+      color: inherit; resize: none; outline: none; padding: 0;
+      display: block;
+    }
+    .edit-time { display: block; font-size: 10px; opacity: 0.4; margin-top: 4px; text-align: right; }
+
     /* Scrollbar */
     .chat-panel::-webkit-scrollbar { width: 6px; }
     .chat-panel::-webkit-scrollbar-track { background: transparent; }
@@ -288,8 +317,7 @@
 <!-- ── Sidebar ── -->
 <div id="sidebar">
   <div class="sidebar-top">
-    <button id="folder-btn" onclick="document.getElementById('folder-input').click()">폴더 열기</button>
-    <input type="file" id="folder-input" webkitdirectory style="display:none">
+    <button id="folder-btn" onclick="openFolderPicker()">폴더 열기</button>
   </div>
   <div id="conv-list">
     <p class="no-conv">폴더를 선택하세요</p>
@@ -305,6 +333,7 @@
     <div class="header-tabs">
       <button class="tab-btn active" data-tab="wordpiece">Word-piece</button>
       <button class="tab-btn" data-tab="inline-chip">인라인 병합</button>
+      <button class="tab-btn" data-tab="edit">편집</button>
     </div>
     <div class="header-legend">
       <div class="legend-item"><div class="legend-dot left"></div><span>고객</span></div>
@@ -326,6 +355,7 @@
   <div id="placeholder">대화를 선택하세요</div>
   <div class="chat-panel" id="panel-wordpiece"></div>
   <div class="chat-panel" id="panel-inline-chip"></div>
+  <div class="chat-panel" id="panel-edit"></div>
 </div>
 
 <script>
@@ -333,6 +363,9 @@
 // DATA (동적으로 채워짐)
 // ══════════════════════════════════════════════
 let LEFT_RAW = [], RIGHT_RAW = [], ORIGINAL_BUBBLES = [], ALL_WPS = [];
+let LEFT_EDIT = [], RIGHT_EDIT = [];
+let _dirHandle = null, _currentConv = null;
+let _editTimeline = [], _editIdx = 0;
 
 // ══════════════════════════════════════════════
 const SIMPLE_RE = /^(네|예|어|음|아|에|응|네네|네 네|어 네|아 네|네 에|어 음|아 네 네|네 네 어|시죠 네|세시|분)$/;
@@ -537,11 +570,15 @@ function buildOriginalBubbles() {
   return items;
 }
 
-function loadConversation(leftRaw, rightRaw, wavUrl, title, wavName) {
+function loadConversation(leftRaw, rightRaw, leftEdit, rightEdit, wavUrl, title, wavName) {
   LEFT_RAW = leftRaw;
   RIGHT_RAW = rightRaw;
+  LEFT_EDIT = leftEdit;
+  RIGHT_EDIT = rightEdit;
   ORIGINAL_BUBBLES = buildOriginalBubbles();
   ALL_WPS = buildWpLookup();
+  _editTimeline = buildEditTimeline();
+  _editIdx = 0;
 
   document.getElementById('conv-title').textContent = title;
   document.getElementById('audio-label').textContent = wavName;
@@ -560,6 +597,7 @@ function loadConversation(leftRaw, rightRaw, wavUrl, title, wavName) {
 
   document.getElementById('panel-wordpiece').innerHTML = renderTab1();
   document.getElementById('panel-inline-chip').innerHTML = renderTab6();
+  document.getElementById('panel-edit').innerHTML = renderEditTab();
 
   document.getElementById('placeholder').classList.add('hidden');
 }
@@ -569,26 +607,29 @@ function loadConversation(leftRaw, rightRaw, wavUrl, title, wavName) {
 // ══════════════════════════════════════════════
 let _conversations = [];
 
-document.getElementById('folder-input').addEventListener('change', function(e) {
-  const files = Array.from(e.target.files);
-  const groups = {};
+async function openFolderPicker() {
+  try {
+    _dirHandle = await showDirectoryPicker({ mode: 'readwrite' });
+  } catch { return; }
 
-  files.forEach(f => {
-    const name = f.name;
+  const groups = {};
+  for await (const [name, handle] of _dirHandle.entries()) {
+    if (handle.kind !== 'file') continue;
+    if (name.endsWith('_left_edit.json') || name.endsWith('_right_edit.json')) continue;
     if (name.endsWith('_left.json')) {
       const base = name.slice(0, -10);
-      (groups[base] = groups[base] || {}).leftFile = f;
+      (groups[base] = groups[base] || {}).leftHandle = handle;
     } else if (name.endsWith('_right.json')) {
       const base = name.slice(0, -11);
-      (groups[base] = groups[base] || {}).rightFile = f;
+      (groups[base] = groups[base] || {}).rightHandle = handle;
     } else if (name.toLowerCase().endsWith('.wav')) {
       const base = name.slice(0, -4);
-      (groups[base] = groups[base] || {}).wavFile = f;
+      (groups[base] = groups[base] || {}).wavHandle = handle;
     }
-  });
+  }
 
   _conversations = Object.entries(groups)
-    .filter(([, g]) => g.leftFile && g.rightFile && g.wavFile)
+    .filter(([, g]) => g.leftHandle && g.rightHandle && g.wavHandle)
     .map(([id, g]) => ({ id, ...g }))
     .sort((a, b) => a.id.localeCompare(b.id));
 
@@ -600,29 +641,157 @@ document.getElementById('folder-input').addEventListener('change', function(e) {
   list.innerHTML = _conversations.map((c, i) =>
     `<div class="conv-item" data-idx="${i}" onclick="selectConv(${i})">${c.id}</div>`
   ).join('');
-});
+}
 
 async function selectConv(idx) {
   document.querySelectorAll('.conv-item').forEach(el => el.classList.remove('active'));
   document.querySelector(`.conv-item[data-idx="${idx}"]`).classList.add('active');
   const c = _conversations[idx];
+  _currentConv = c;
+
   const [leftRaw, rightRaw] = await Promise.all([
-    readFileAsJson(c.leftFile),
-    readFileAsJson(c.rightFile),
+    readHandleAsJson(c.leftHandle),
+    readHandleAsJson(c.rightHandle),
   ]);
-  const wavUrl = URL.createObjectURL(c.wavFile);
-  loadConversation(leftRaw, rightRaw, wavUrl, c.id, c.wavFile.name);
+  const [leftEdit, rightEdit] = await Promise.all([
+    getOrCreateEditJson(c.id, 'left', leftRaw),
+    getOrCreateEditJson(c.id, 'right', rightRaw),
+  ]);
+  const wavFile = await c.wavHandle.getFile();
+  const wavUrl = URL.createObjectURL(wavFile);
+  loadConversation(leftRaw, rightRaw, leftEdit, rightEdit, wavUrl, c.id, wavFile.name);
 }
 
-function readFileAsJson(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = e => { try { resolve(JSON.parse(e.target.result)); } catch(err) { reject(err); } };
-    reader.onerror = reject;
-    reader.readAsText(file, 'utf-8');
-  });
+async function readHandleAsJson(handle) {
+  const file = await handle.getFile();
+  const text = await file.text();
+  return JSON.parse(text);
 }
 
+async function getOrCreateEditJson(id, side, originalData) {
+  const name = `${id}_${side}_edit.json`;
+  try {
+    const handle = await _dirHandle.getFileHandle(name);
+    return await readHandleAsJson(handle);
+  } catch {
+    const copy = JSON.parse(JSON.stringify(originalData));
+    const handle = await _dirHandle.getFileHandle(name, { create: true });
+    const writable = await handle.createWritable();
+    await writable.write(JSON.stringify(copy, null, 2));
+    await writable.close();
+    return copy;
+  }
+}
+
+async function writeEditFile(side) {
+  const data = side === 'left' ? LEFT_EDIT : RIGHT_EDIT;
+  const name = `${_currentConv.id}_${side}_edit.json`;
+  const handle = await _dirHandle.getFileHandle(name, { create: true });
+  const writable = await handle.createWritable();
+  await writable.write(JSON.stringify(data, null, 2));
+  await writable.close();
+}
+
+
+// ══════════════════════════════════════════════
+// EDIT TAB
+// ══════════════════════════════════════════════
+function buildEditTimeline() {
+  const items = [];
+  LEFT_RAW.forEach((s, i) => items.push({
+    ch: 'left', idx: i,
+    original: s.sentence,
+    edited: LEFT_EDIT[i]?.sentence ?? s.sentence,
+    start: getStart(s), end: getEnd(s),
+  }));
+  RIGHT_RAW.forEach((s, i) => items.push({
+    ch: 'right', idx: i,
+    original: s.sentence,
+    edited: RIGHT_EDIT[i]?.sentence ?? s.sentence,
+    start: getStart(s), end: getEnd(s),
+  }));
+  items.sort((a, b) => a.start - b.start);
+  return items;
+}
+
+function renderEditTab() {
+  return _editTimeline.map((item, ti) => {
+    const modified = item.edited !== item.original;
+    return `<div class="edit-bubble-row ${item.ch}">
+      <div class="edit-bubble ${item.ch}" data-ti="${ti}" data-ch="${item.ch}" data-idx="${item.idx}" data-start="${item.start}" data-end="${item.end}" onclick="clickEditBubble(${ti})">
+        <div class="edit-original">${item.original}</div>
+        <div class="edit-text${modified ? ' modified' : ''}">${item.edited}</div>
+        <span class="edit-time">${fmtTimeDetail(item.start)}</span>
+      </div>
+    </div>`;
+  }).join('\n');
+}
+
+function focusEditBubble(ti) {
+  document.querySelectorAll('.edit-bubble.focused').forEach(el => el.classList.remove('focused'));
+  const el = document.querySelector(`.edit-bubble[data-ti="${ti}"]`);
+  if (!el) return;
+  el.classList.add('focused');
+  const panel = document.getElementById('panel-edit');
+  const panelRect = panel.getBoundingClientRect();
+  const elRect = el.getBoundingClientRect();
+  if (elRect.bottom > panelRect.bottom - 80) {
+    panel.scrollBy({ top: elRect.bottom - panelRect.bottom + 80, behavior: 'smooth' });
+  } else if (elRect.top < panelRect.top + 80) {
+    panel.scrollBy({ top: elRect.top - panelRect.top - 80, behavior: 'smooth' });
+  }
+}
+
+function clickEditBubble(ti) {
+  _editIdx = ti;
+  focusEditBubble(ti);
+  const item = _editTimeline[ti];
+  audio.currentTime = item.start / 1000;
+  _navIdx = null;
+}
+
+function openEditBubble() {
+  const el = document.querySelector(`.edit-bubble[data-ti="${_editIdx}"]`);
+  if (!el || el.classList.contains('editing')) return;
+  el.classList.add('editing');
+  const textDiv = el.querySelector('.edit-text');
+  const current = textDiv.textContent;
+  textDiv.innerHTML = `<textarea class="edit-input" rows="1">${current}</textarea>`;
+  const ta = textDiv.querySelector('textarea');
+  ta.style.height = ta.scrollHeight + 'px';
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+async function saveEditBubble() {
+  const el = document.querySelector(`.edit-bubble.editing[data-ti="${_editIdx}"]`);
+  if (!el) return;
+  const ta = el.querySelector('.edit-input');
+  const newText = ta ? ta.value.trim() : '';
+  const ch = el.dataset.ch;
+  const idx = parseInt(el.dataset.idx);
+  const ti = parseInt(el.dataset.ti);
+
+  el.classList.remove('editing');
+  const textDiv = el.querySelector('.edit-text');
+  const original = _editTimeline[ti].original;
+  textDiv.textContent = newText;
+  textDiv.className = 'edit-text' + (newText !== original ? ' modified' : '');
+  _editTimeline[ti].edited = newText;
+
+  if (ch === 'left') LEFT_EDIT[idx].sentence = newText;
+  else RIGHT_EDIT[idx].sentence = newText;
+  await writeEditFile(ch);
+}
+
+function cancelEditBubble() {
+  const el = document.querySelector(`.edit-bubble.editing[data-ti="${_editIdx}"]`);
+  if (!el) return;
+  const ti = parseInt(el.dataset.ti);
+  el.classList.remove('editing');
+  const textDiv = el.querySelector('.edit-text');
+  textDiv.innerHTML = _editTimeline[ti].edited;
+}
 
 // ══════════════════════════════════════════════
 // TAB SWITCHING
@@ -633,7 +802,9 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     btn.classList.add('active');
     const tab = btn.dataset.tab;
     document.querySelectorAll('.chat-panel').forEach(p => p.classList.remove('active'));
-    document.getElementById(tab === 'wordpiece' ? 'panel-wordpiece' : 'panel-inline-chip').classList.add('active');
+    const panelId = tab === 'wordpiece' ? 'panel-wordpiece' : tab === 'inline-chip' ? 'panel-inline-chip' : 'panel-edit';
+    document.getElementById(panelId).classList.add('active');
+    if (tab === 'edit') focusEditBubble(_editIdx);
   });
 });
 
@@ -797,9 +968,19 @@ document.addEventListener('keydown', e => {
   }
   if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
     e.preventDefault();
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (activeTab === 'edit') {
+      if (document.querySelector('.edit-bubble.editing')) return;
+      if (e.key === 'ArrowRight') _editIdx = Math.min(_editTimeline.length - 1, _editIdx + 1);
+      else _editIdx = Math.max(0, _editIdx - 1);
+      focusEditBubble(_editIdx);
+      const item = _editTimeline[_editIdx];
+      audio.currentTime = item.start / 1000;
+      _navIdx = null;
+      return;
+    }
     if (!ALL_WPS.length) return;
     const ms = audio.currentTime * 1000;
-    // _navIdx 가 없으면 현재 재생 위치로부터 계산
     if (_navIdx === null) {
       _navIdx = -1;
       for (let i = 0; i < ALL_WPS.length; i++) {
@@ -817,49 +998,70 @@ document.addEventListener('keydown', e => {
   }
   if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
     e.preventDefault();
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (activeTab === 'edit') {
+      if (document.querySelector('.edit-bubble.editing')) return;
+      const curEl = document.querySelector(`.edit-bubble[data-ti="${_editIdx}"]`);
+      if (!curEl) return;
+      const curRect = curEl.getBoundingClientRect();
+      const curCenterX = curRect.left + curRect.width / 2;
+      const panel = document.getElementById('panel-edit');
+      const allBubbles = [...panel.querySelectorAll('.edit-bubble')];
+      let candidates;
+      if (e.key === 'ArrowDown') {
+        candidates = allBubbles.filter(el => el.getBoundingClientRect().top > curRect.bottom - 2);
+        if (!candidates.length) return;
+        const minTop = Math.min(...candidates.map(el => el.getBoundingClientRect().top));
+        candidates = candidates.filter(el => el.getBoundingClientRect().top <= minTop + curRect.height);
+      } else {
+        candidates = allBubbles.filter(el => el.getBoundingClientRect().bottom < curRect.top + 2);
+        if (!candidates.length) return;
+        const maxBottom = Math.max(...candidates.map(el => el.getBoundingClientRect().bottom));
+        candidates = candidates.filter(el => el.getBoundingClientRect().bottom >= maxBottom - curRect.height);
+      }
+      const target = candidates.reduce((best, el) => {
+        const cx = el.getBoundingClientRect().left + el.getBoundingClientRect().width / 2;
+        const bestCx = best.getBoundingClientRect().left + best.getBoundingClientRect().width / 2;
+        return Math.abs(cx - curCenterX) < Math.abs(bestCx - curCenterX) ? el : best;
+      });
+      _editIdx = parseInt(target.dataset.ti);
+      focusEditBubble(_editIdx);
+      const item = _editTimeline[_editIdx];
+      audio.currentTime = item.start / 1000;
+      _navIdx = null;
+      return;
+    }
     if (!ALL_WPS.length) return;
     const activePanel = document.querySelector('.chat-panel.active');
     if (!activePanel) return;
-
-    // 현재 하이라이트된 word 요소 찾기
     const curEl = activePanel.querySelector('.wp.wp-playing')
       || (() => {
-        // 하이라이트 없으면 _navIdx 기준 요소 찾기
         if (_navIdx === null) return null;
         const ms = ALL_WPS[_navIdx].start;
         return [...activePanel.querySelectorAll('.wp[data-start]')]
           .find(el => parseFloat(el.dataset.start) === ms) || null;
       })();
     if (!curEl) return;
-
     const curRect = curEl.getBoundingClientRect();
     const curCenterX = curRect.left + curRect.width / 2;
     const allWpEls = [...activePanel.querySelectorAll('.wp[data-start]')];
-
     let candidates;
     if (e.key === 'ArrowDown') {
-      // 현재 word 아래에 있는 요소들 (top이 현재 bottom보다 큰)
       candidates = allWpEls.filter(el => el.getBoundingClientRect().top > curRect.bottom - 2);
       if (!candidates.length) return;
       const minTop = Math.min(...candidates.map(el => el.getBoundingClientRect().top));
-      // 바로 아랫줄만 (minTop 기준 한 줄 높이 이내)
       candidates = candidates.filter(el => el.getBoundingClientRect().top <= minTop + curRect.height);
     } else {
-      // 현재 word 위에 있는 요소들 (bottom이 현재 top보다 작은)
       candidates = allWpEls.filter(el => el.getBoundingClientRect().bottom < curRect.top + 2);
       if (!candidates.length) return;
       const maxBottom = Math.max(...candidates.map(el => el.getBoundingClientRect().bottom));
-      // 바로 윗줄만
       candidates = candidates.filter(el => el.getBoundingClientRect().bottom >= maxBottom - curRect.height);
     }
-
-    // X 중심이 가장 가까운 word 선택
     const target = candidates.reduce((best, el) => {
       const cx = el.getBoundingClientRect().left + el.getBoundingClientRect().width / 2;
       const bestCx = best.getBoundingClientRect().left + best.getBoundingClientRect().width / 2;
       return Math.abs(cx - curCenterX) < Math.abs(bestCx - curCenterX) ? el : best;
     });
-
     const targetStart = parseFloat(target.dataset.start);
     const idx = ALL_WPS.findIndex(wp => wp.start === targetStart);
     if (idx === -1) return;
@@ -867,6 +1069,18 @@ document.addEventListener('keydown', e => {
     audio.currentTime = ALL_WPS[_navIdx].start / 1000;
     _navTs = Date.now();
     updateHighlight(ALL_WPS[_navIdx].start);
+  }
+  if (e.key === 'Enter' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
+    if (activeTab === 'edit') {
+      e.preventDefault();
+      const editing = document.querySelector(`.edit-bubble.editing[data-ti="${_editIdx}"]`);
+      if (editing) saveEditBubble();
+      else openEditBubble();
+    }
+  }
+  if (e.key === 'Escape') {
+    cancelEditBubble();
   }
 });
 </script>
