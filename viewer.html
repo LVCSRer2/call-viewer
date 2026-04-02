@@ -641,6 +641,8 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 // AUDIO PLAYBACK
 // ══════════════════════════════════════════════
 const audio = document.getElementById('audio-player');
+let _navIdx = null; // 화살표 키 word 단위 탐색 인덱스
+let _navTs  = 0;   // 마지막 화살표 키 입력 시각
 const playBtn = document.getElementById('play-btn');
 const progressFill = document.getElementById('progress-fill');
 const audioTime = document.getElementById('audio-time');
@@ -654,6 +656,7 @@ function seekAudio(e) {
   const rect = e.currentTarget.getBoundingClientRect();
   const pct = (e.clientX - rect.left) / rect.width;
   audio.currentTime = pct * audio.duration;
+  _navIdx = null;
 }
 
 // 글자(word) 클릭 시 해당 위치 재생
@@ -661,6 +664,7 @@ function playWord(e, el) {
   e.stopPropagation();
   const startMs = parseFloat(el.dataset.start);
   if (isNaN(startMs) || startMs < 0) return;
+  _navIdx = null;
   audio.currentTime = startMs / 1000;
   audio.play();
   playBtn.textContent = '⏸';
@@ -669,21 +673,18 @@ function playWord(e, el) {
 // 칩 클릭 시 재생
 function playSegment(el) {
   const startMs = parseFloat(el.dataset.start);
+  _navIdx = null;
   audio.currentTime = startMs / 1000;
   audio.play();
   playBtn.textContent = '⏸';
 }
 
 // ── 재생 위치에 따라 하이라이트 ──
-audio.addEventListener('timeupdate', () => {
-  if (!audio.duration) return;
-  const pct = (audio.currentTime / audio.duration) * 100;
-  progressFill.style.width = pct + '%';
-  audioTime.textContent = `${fmtTime(audio.currentTime * 1000)} / ${fmtTime(audio.duration * 1000)}`;
+function updateHighlight(forceMs) {
+  const ms = forceMs !== undefined ? forceMs
+    : (_navIdx !== null && ALL_WPS[_navIdx]) ? ALL_WPS[_navIdx].start
+    : audio.currentTime * 1000;
 
-  const ms = audio.currentTime * 1000;
-
-  // Clear all highlights
   document.querySelectorAll('.bubble.playing').forEach(el => el.classList.remove('playing'));
   document.querySelectorAll('.wp.wp-playing').forEach(el => el.classList.remove('wp-playing'));
   document.querySelectorAll('.interjection-chip.playing').forEach(el => el.classList.remove('playing'));
@@ -691,23 +692,39 @@ audio.addEventListener('timeupdate', () => {
   const activePanel = document.querySelector('.chat-panel.active');
   if (!activePanel) return;
 
-  // Highlight current word-piece
   let foundWp = false;
   let scrollTarget = null;
   const allWpEls = activePanel.querySelectorAll('.wp[data-start]');
-  for (const wpEl of allWpEls) {
-    const s = parseFloat(wpEl.dataset.start);
-    const e = parseFloat(wpEl.dataset.end);
-    if (ms >= s && ms <= e + 200) {
-      wpEl.classList.add('wp-playing');
-      const parentBubble = wpEl.closest('.bubble');
-      if (parentBubble) { parentBubble.classList.add('playing'); scrollTarget = parentBubble; }
-      foundWp = true;
-      break;
+
+  // navIdx 가 설정돼 있거나 forceMs 가 주어지면 exact 매칭, 아니면 범위 매칭
+  const useExact = forceMs !== undefined || _navIdx !== null;
+
+  if (useExact) {
+    for (const wpEl of allWpEls) {
+      if (parseFloat(wpEl.dataset.start) === ms) {
+        wpEl.classList.add('wp-playing');
+        const parentBubble = wpEl.closest('.bubble');
+        if (parentBubble) { parentBubble.classList.add('playing'); scrollTarget = parentBubble; }
+        foundWp = true;
+        break;
+      }
     }
   }
 
-  // Highlight current chip
+  if (!foundWp) {
+    for (const wpEl of allWpEls) {
+      const s = parseFloat(wpEl.dataset.start);
+      const e = parseFloat(wpEl.dataset.end);
+      if (ms >= s && ms <= e + 200) {
+        wpEl.classList.add('wp-playing');
+        const parentBubble = wpEl.closest('.bubble');
+        if (parentBubble) { parentBubble.classList.add('playing'); scrollTarget = parentBubble; }
+        foundWp = true;
+        break;
+      }
+    }
+  }
+
   if (!foundWp) {
     const chipEls = activePanel.querySelectorAll('.interjection-chip[data-start]');
     for (const chipEl of chipEls) {
@@ -721,7 +738,6 @@ audio.addEventListener('timeupdate', () => {
     }
   }
 
-  // 하이라이트 요소가 패널 밖으로 벗어나면 스크롤
   if (scrollTarget) {
     const panelRect  = activePanel.getBoundingClientRect();
     const targetRect = scrollTarget.getBoundingClientRect();
@@ -732,9 +748,44 @@ audio.addEventListener('timeupdate', () => {
       activePanel.scrollBy({ top: targetRect.top - panelRect.top - margin, behavior: 'smooth' });
     }
   }
+}
+
+audio.addEventListener('timeupdate', () => {
+  if (!audio.duration) return;
+  if (_navIdx !== null && !audio.paused && Date.now() - _navTs > 800) {
+    _navIdx = null;
+  }
+  const pct = (audio.currentTime / audio.duration) * 100;
+  progressFill.style.width = pct + '%';
+  audioTime.textContent = `${fmtTime(audio.currentTime * 1000)} / ${fmtTime(audio.duration * 1000)}`;
+  updateHighlight();
 });
 
 audio.addEventListener('ended', () => { playBtn.textContent = '▶'; });
+
+// ── DEBUG OVERLAY ──
+const _dbg = document.createElement('div');
+_dbg.style.cssText = 'position:fixed;bottom:8px;right:8px;background:rgba(0,0,0,0.8);color:#0f0;font:11px monospace;padding:8px 12px;border-radius:6px;z-index:9999;line-height:1.8;pointer-events:none';
+document.body.appendChild(_dbg);
+audio.addEventListener('timeupdate', () => {
+  const ms = audio.currentTime * 1000;
+  const cur = ALL_WPS[_navIdx];
+  const calc = (() => {
+    let idx = -1;
+    for (let i = 0; i < ALL_WPS.length; i++) {
+      if (ALL_WPS[i].start <= ms) idx = i; else break;
+    }
+    return idx;
+  })();
+  const hlMs = (_navIdx !== null && ALL_WPS[_navIdx]) ? ALL_WPS[_navIdx].start : ms;
+  const mode = _navIdx !== null ? 'exact' : 'range';
+  _dbg.innerHTML =
+    `currentTime: ${ms.toFixed(1)} ms<br>` +
+    `_navIdx: ${_navIdx} / total: ${ALL_WPS.length}<br>` +
+    `nav word: ${cur ? `[${cur.ch}] "${cur.word}" @${cur.start}` : '-'}<br>` +
+    `calc idx: ${calc} → "${ALL_WPS[calc]?.word ?? '-'}" @${ALL_WPS[calc]?.start ?? '-'}<br>` +
+    `highlight: ${mode} @ ${hlMs}`;
+});
 
 document.addEventListener('keydown', e => {
   if (e.key === 'F5' || (e.ctrlKey && e.key === 'r') || (e.metaKey && e.key === 'r')) {
@@ -748,13 +799,21 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     if (!ALL_WPS.length) return;
     const ms = audio.currentTime * 1000;
-    if (e.key === 'ArrowRight') {
-      const next = ALL_WPS.find(wp => wp.start > ms + 50);
-      if (next) audio.currentTime = next.start / 1000;
-    } else {
-      const prev = [...ALL_WPS].reverse().find(wp => wp.start < ms - 50);
-      if (prev) audio.currentTime = prev.start / 1000;
+    // _navIdx 가 없으면 현재 재생 위치로부터 계산
+    if (_navIdx === null) {
+      _navIdx = -1;
+      for (let i = 0; i < ALL_WPS.length; i++) {
+        if (ALL_WPS[i].start <= ms) _navIdx = i; else break;
+      }
     }
+    if (e.key === 'ArrowRight') {
+      _navIdx = Math.min(ALL_WPS.length - 1, _navIdx + 1);
+    } else {
+      _navIdx = Math.max(0, _navIdx - 1);
+    }
+    audio.currentTime = ALL_WPS[_navIdx].start / 1000;
+    _navTs = Date.now();
+    updateHighlight(ALL_WPS[_navIdx].start);
   }
 });
 </script>
