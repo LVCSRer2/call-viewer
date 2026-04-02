@@ -744,5 +744,9 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     togglePlay();
   }
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+    e.preventDefault();
+    audio.currentTime = Math.max(0, Math.min(audio.duration || 0, audio.currentTime + (e.key === 'ArrowRight' ? 5 : -5)));
+  }
 });
 </script>
