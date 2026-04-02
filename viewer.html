@@ -419,7 +419,7 @@ function renderTab1() {
     const end   = curWps[curWps.length - 1].end;
     const textHtml = curWps.map(wp => wpSpan(wp.word, wp.start, wp.end)).join(' ');
     html.push(`<div class="message-row ${curCh}">
-      <div class="bubble ${curCh}" data-start="${start}" data-end="${end}">
+      <div class="bubble ${curCh}" data-start="${start}" data-end="${end}" onclick="clickBubbleArea(this)">
         <span class="text">${textHtml}</span>
         <span class="time">${fmtTimeDetail(start)}</span>
       </div>
@@ -541,7 +541,7 @@ function renderTab6() {
     const textHtml  = blockWords.map(w => w.raw ? w.word : wpSpan(w.word, w.start, w.end)).join(' ');
 
     html.push(`<div class="message-row ${blockCh}">
-      <div class="bubble ${blockCh}" data-start="${blockStart}" data-end="${blockEnd}">
+      <div class="bubble ${blockCh}" data-start="${blockStart}" data-end="${blockEnd}" onclick="clickBubbleArea(this)">
         <span class="text">${textHtml}</span>
         <span class="time">${fmtTimeDetail(blockStart)}</span>
       </div>
@@ -760,10 +760,10 @@ function renderEditTab() {
     const end = curWords[curWords.length - 1].item.end;
     const wordsHtml = curWords.map(({ item, ti }) => {
       const modified = item.edited !== item.original;
-      return `<span class="edit-word${modified ? ' modified' : ''}" data-ti="${ti}" data-start="${item.start}" data-end="${item.end}" onclick="clickEditWord(${ti})" ondblclick="dblEditWord(${ti})">${item.edited}</span>`;
+      return `<span class="edit-word${modified ? ' modified' : ''}" data-ti="${ti}" data-start="${item.start}" data-end="${item.end}" onclick="clickEditWord(event,${ti})" ondblclick="dblEditWord(event,${ti})">${item.edited}</span>`;
     }).join(' ');
     html.push(`<div class="edit-bubble-row ${curCh}">
-      <div class="edit-bubble ${curCh}" data-start="${start}" data-end="${end}">
+      <div class="edit-bubble ${curCh}" data-start="${start}" data-end="${end}" onclick="clickBubbleArea(this)">
         <span class="text">${wordsHtml}</span>
         <span class="edit-time">${fmtTimeDetail(start)}</span>
       </div>
@@ -794,12 +794,21 @@ function focusEditWord(ti) {
   }
 }
 
-function dblEditWord(ti) {
-  clickEditWord(ti);
+function clickBubbleArea(el) {
+  const startMs = parseFloat(el.dataset.start);
+  if (isNaN(startMs)) return;
+  audio.currentTime = startMs / 1000;
+  _navIdx = null;
+}
+
+function dblEditWord(e, ti) {
+  e.stopPropagation();
+  clickEditWord(e, ti);
   openEditBubble();
 }
 
-function clickEditWord(ti) {
+function clickEditWord(e, ti) {
+  e.stopPropagation();
   if (document.querySelector('.edit-word.editing')) cancelEditBubble();
   _editIdx = ti;
   focusEditWord(ti);
