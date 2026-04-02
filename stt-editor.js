@@ -5,6 +5,7 @@ let LEFT_RAW = [], RIGHT_RAW = [], ORIGINAL_BUBBLES = [], ALL_WPS = [];
 let LEFT_EDIT = [], RIGHT_EDIT = [];
 let _dirHandle = null, _currentConv = null;
 let _editTimeline = [], _editIdx = 0;
+let _editLog = [], _logHandle = null;
 
 // ══════════════════════════════════════════════
 const SIMPLE_RE = /^(네|예|어|음|아|에|응|네네|네 네|어 네|아 네|네 에|어 음|아 네 네|네 네 어|시죠 네|세시|분)$/;
@@ -327,6 +328,7 @@ async function selectConv(idx) {
     getOrCreateEditJson(c.id, 'left', leftRaw),
     getOrCreateEditJson(c.id, 'right', rightRaw),
   ]);
+  _editLog = await getOrCreateLog(c.id);
   const wavFile = await c.wavHandle.getFile();
   const wavUrl = URL.createObjectURL(wavFile);
   loadConversation(leftRaw, rightRaw, leftEdit, rightEdit, wavUrl, c.id, wavFile.name);
@@ -336,6 +338,29 @@ async function readHandleAsJson(handle) {
   const file = await handle.getFile();
   const text = await file.text();
   return JSON.parse(text);
+}
+
+async function getOrCreateLog(id) {
+  const name = `${id}_log.json`;
+  try {
+    _logHandle = await _dirHandle.getFileHandle(name);
+    const file = await _logHandle.getFile();
+    const text = await file.text();
+    return text.trim() ? JSON.parse(text) : [];
+  } catch {
+    _logHandle = await _dirHandle.getFileHandle(name, { create: true });
+    const writable = await _logHandle.createWritable();
+    await writable.write('[]');
+    await writable.close();
+    return [];
+  }
+}
+
+async function writeLogFile() {
+  if (!_logHandle) return;
+  const writable = await _logHandle.createWritable();
+  await writable.write(JSON.stringify(_editLog, null, 2));
+  await writable.close();
 }
 
 async function getOrCreateEditJson(id, side, originalData) {
@@ -373,6 +398,47 @@ function updateEditCount() {
   el.style.display = 'inline';
   el.textContent = `수정 ${count}개`;
   el.className = count > 0 ? 'has-edits' : '';
+}
+
+function toggleLogPanel() {
+  const panel = document.getElementById('log-panel');
+  const isOpen = panel.classList.toggle('open');
+  if (isOpen) renderLogPanel();
+}
+
+function renderLogPanel() {
+  const list = document.getElementById('log-list');
+  if (!_editLog.length) {
+    list.innerHTML = '<p class="log-empty">수정 내역이 없습니다.</p>';
+    return;
+  }
+  list.innerHTML = _editLog.map((entry, i) =>
+    `<div class="log-entry" onclick="jumpToLogEntry(${i})">
+      <span class="log-time">[${entry.time}]</span>
+      <span class="log-original">${entry.original}</span>
+      <span class="log-arrow">→</span>
+      <span class="log-edited">${entry.edited}</span>
+    </div>`
+  ).join('');
+}
+
+function jumpToLogEntry(i) {
+  const entry = _editLog[i];
+  if (!entry) return;
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.chat-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector('[data-tab="edit"]').classList.add('active');
+  document.getElementById('panel-edit').classList.add('active');
+  const ti = _editTimeline.findIndex(item =>
+    item.ch === entry.ch && item.sentIdx === entry.sentIdx && item.wpIdx === entry.wpIdx
+  );
+  if (ti !== -1) {
+    _editIdx = ti;
+    audio.currentTime = entry.wordStart / 1000;
+    _navIdx = null;
+    focusEditWord(ti);
+  }
+  toggleLogPanel();
 }
 
 function buildEditTimeline() {
@@ -484,6 +550,8 @@ async function saveEditBubble() {
   const ti = parseInt(el.dataset.ti);
   const item = _editTimeline[ti];
 
+  const prevText = item.edited;
+
   el.classList.remove('editing');
   el.textContent = newText;
   el.className = 'edit-word' + (newText !== item.original ? ' modified' : '') + ' focused';
@@ -492,6 +560,16 @@ async function saveEditBubble() {
   if (item.ch === 'left') LEFT_EDIT[item.sentIdx].word_pieces[item.wpIdx].word = newText;
   else RIGHT_EDIT[item.sentIdx].word_pieces[item.wpIdx].word = newText;
   await writeEditFile(item.ch);
+
+  if (newText !== prevText) {
+    const now = new Date();
+    const time = [now.getHours(), now.getMinutes(), now.getSeconds()]
+      .map(n => String(n).padStart(2, '0')).join(':');
+    _editLog.push({ time, original: prevText, edited: newText,
+      wordStart: item.start, ch: item.ch, sentIdx: item.sentIdx, wpIdx: item.wpIdx });
+    await writeLogFile();
+  }
+
   updateEditCount();
 }
 

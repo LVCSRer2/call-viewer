@@ -52,9 +52,47 @@
       font-size: 11px; color: rgba(255,255,255,0.55);
       background: rgba(255,255,255,0.08); border-radius: 10px;
       padding: 2px 9px; white-space: nowrap; flex-shrink: 0;
-      display: none;
+      display: none; cursor: pointer; border: none; font-family: inherit;
+      transition: background 0.15s;
     }
+    #edit-count:hover { background: rgba(255,255,255,0.15); }
     #edit-count.has-edits { color: #7eff7e; background: rgba(126,255,126,0.12); }
+    #edit-count.has-edits:hover { background: rgba(126,255,126,0.22); }
+
+    /* ── Log panel ── */
+    #log-panel {
+      position: fixed; top: 44px; right: 0;
+      width: 340px; height: calc(100vh - 44px);
+      background: #16213e; color: #fff;
+      z-index: 200; display: none; flex-direction: column;
+      box-shadow: -4px 0 24px rgba(0,0,0,0.4);
+      border-left: 1px solid rgba(255,255,255,0.08);
+    }
+    #log-panel.open { display: flex; }
+    .log-panel-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.08);
+      font-size: 13px; font-weight: 600; flex-shrink: 0;
+    }
+    .log-close-btn {
+      background: none; border: none; color: rgba(255,255,255,0.5);
+      font-size: 16px; cursor: pointer; padding: 0 4px; font-family: inherit;
+    }
+    .log-close-btn:hover { color: #fff; }
+    #log-list { flex: 1; overflow-y: auto; padding: 8px; }
+    #log-list::-webkit-scrollbar { width: 4px; }
+    #log-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+    .log-entry {
+      padding: 8px 10px; border-radius: 6px; cursor: pointer;
+      font-size: 12px; line-height: 1.5; margin-bottom: 2px;
+      transition: background 0.12s;
+    }
+    .log-entry:hover { background: rgba(255,255,255,0.08); }
+    .log-time { color: rgba(255,255,255,0.4); margin-right: 6px; font-variant-numeric: tabular-nums; }
+    .log-original { color: rgba(255,255,255,0.5); text-decoration: line-through; }
+    .log-arrow { color: rgba(255,255,255,0.3); margin: 0 4px; }
+    .log-edited { color: #7eff7e; }
+    .log-empty { color: rgba(255,255,255,0.3); font-size: 12px; text-align: center; padding: 24px; }
     .header-legend {
       display: flex; align-items: center; gap: 10px;
       font-size: 11px; color: rgba(255,255,255,0.45);
@@ -344,7 +382,7 @@
       <button class="tab-btn" data-tab="inline-chip">인라인 병합</button>
       <button class="tab-btn" data-tab="edit">편집</button>
     </div>
-    <span id="edit-count"></span>
+    <button id="edit-count" onclick="toggleLogPanel()"></button>
     <div class="header-legend">
       <div class="legend-item"><div class="legend-dot left"></div><span>고객</span></div>
       <div class="legend-item"><div class="legend-dot right"></div><span>상담사</span></div>
@@ -366,6 +404,15 @@
   <div class="chat-panel" id="panel-wordpiece"></div>
   <div class="chat-panel" id="panel-inline-chip"></div>
   <div class="chat-panel" id="panel-edit"></div>
+</div>
+
+<!-- ── Log panel ── -->
+<div id="log-panel">
+  <div class="log-panel-header">
+    <span>수정 내역</span>
+    <button class="log-close-btn" onclick="toggleLogPanel()">✕</button>
+  </div>
+  <div id="log-list"></div>
 </div>
 
 
