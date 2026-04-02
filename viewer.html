@@ -735,4 +735,10 @@ audio.addEventListener('timeupdate', () => {
 });
 
 audio.addEventListener('ended', () => { playBtn.textContent = '▶'; });
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'F5' || (e.ctrlKey && e.key === 'r') || (e.metaKey && e.key === 'r')) {
+    e.preventDefault();
+  }
+});
 </script>
