@@ -245,6 +245,8 @@
     .edit-bubble.right .edit-word.focused { background: rgba(233,69,96,0.25); }
     .edit-word.modified { color: #1a7a1a; }
     .edit-bubble.right .edit-word.modified { color: #7eff7e; }
+    .edit-word.ew-playing { background: rgba(233,69,96,0.3); font-weight: 600; }
+    .edit-bubble.right .edit-word.ew-playing { background: rgba(255,255,255,0.25); font-weight: 600; }
     .edit-word-input {
       border: none; border-bottom: 1.5px solid #e94560;
       background: transparent; font-size: 14px; font-family: inherit;
@@ -754,11 +756,11 @@ function renderEditTab() {
 
   function flushBubble() {
     if (!curWords.length) return;
-    const start = curWords[0].start;
-    const end = curWords[curWords.length - 1].end;
+    const start = curWords[0].item.start;
+    const end = curWords[curWords.length - 1].item.end;
     const wordsHtml = curWords.map(({ item, ti }) => {
       const modified = item.edited !== item.original;
-      return `<span class="edit-word${modified ? ' modified' : ''}" data-ti="${ti}" data-start="${item.start}" onclick="clickEditWord(${ti})">${item.edited}</span>`;
+      return `<span class="edit-word${modified ? ' modified' : ''}" data-ti="${ti}" data-start="${item.start}" data-end="${item.end}" onclick="clickEditWord(${ti})" ondblclick="dblEditWord(${ti})">${item.edited}</span>`;
     }).join(' ');
     html.push(`<div class="edit-bubble-row ${curCh}">
       <div class="edit-bubble ${curCh}" data-start="${start}" data-end="${end}">
@@ -790,6 +792,11 @@ function focusEditWord(ti) {
   } else if (elRect.top < panelRect.top + 80) {
     panel.scrollBy({ top: elRect.top - panelRect.top - 80, behavior: 'smooth' });
   }
+}
+
+function dblEditWord(ti) {
+  clickEditWord(ti);
+  openEditBubble();
 }
 
 function clickEditWord(ti) {
@@ -909,6 +916,7 @@ function updateHighlight(forceMs) {
   document.querySelectorAll('.bubble.playing').forEach(el => el.classList.remove('playing'));
   document.querySelectorAll('.wp.wp-playing').forEach(el => el.classList.remove('wp-playing'));
   document.querySelectorAll('.interjection-chip.playing').forEach(el => el.classList.remove('playing'));
+  document.querySelectorAll('.edit-word.ew-playing').forEach(el => el.classList.remove('ew-playing'));
 
   const activePanel = document.querySelector('.chat-panel.active');
   if (!activePanel) return;
@@ -954,6 +962,22 @@ function updateHighlight(forceMs) {
       if (ms >= s && ms <= e + 200) {
         chipEl.classList.add('playing');
         scrollTarget = chipEl;
+        break;
+      }
+    }
+  }
+
+  // 편집 탭 단어 하이라이트
+  if (activePanel.id === 'panel-edit') {
+    const editMs = audio.currentTime * 1000;
+    const ewEls = activePanel.querySelectorAll('.edit-word[data-start]');
+    for (const ewEl of ewEls) {
+      if (ewEl.classList.contains('editing')) continue;
+      const s = parseFloat(ewEl.dataset.start);
+      const e = parseFloat(ewEl.dataset.end);
+      if (editMs >= s && editMs <= e + 200) {
+        ewEl.classList.add('ew-playing');
+        if (!scrollTarget) scrollTarget = ewEl;
         break;
       }
     }
