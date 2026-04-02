@@ -607,10 +607,40 @@ function loadConversation(leftRaw, rightRaw, leftEdit, rightEdit, wavUrl, title,
 // ══════════════════════════════════════════════
 let _conversations = [];
 
-async function openFolderPicker() {
+function _idbOpen() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('stt-viewer', 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore('handles');
+    req.onsuccess = e => res(e.target.result);
+    req.onerror = rej;
+  });
+}
+async function _idbSaveDir(handle) {
+  const db = await _idbOpen();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(handle, 'lastDir');
+    tx.oncomplete = res; tx.onerror = rej;
+  });
+}
+async function _idbLoadDir() {
   try {
-    _dirHandle = await showDirectoryPicker({ mode: 'readwrite' });
+    const db = await _idbOpen();
+    return await new Promise((res, rej) => {
+      const tx = db.transaction('handles', 'readonly');
+      const req = tx.objectStore('handles').get('lastDir');
+      req.onsuccess = () => res(req.result || null);
+      req.onerror = () => res(null);
+    });
+  } catch { return null; }
+}
+
+async function openFolderPicker() {
+  const lastHandle = await _idbLoadDir();
+  try {
+    _dirHandle = await showDirectoryPicker({ mode: 'readwrite', ...(lastHandle ? { startIn: lastHandle } : {}) });
   } catch { return; }
+  await _idbSaveDir(_dirHandle);
 
   const groups = {};
   for await (const [name, handle] of _dirHandle.entries()) {
@@ -939,28 +969,28 @@ audio.addEventListener('timeupdate', () => {
 audio.addEventListener('ended', () => { playBtn.textContent = '▶'; });
 
 // ── DEBUG OVERLAY ──
-const _dbg = document.createElement('div');
-_dbg.style.cssText = 'position:fixed;bottom:8px;right:8px;background:rgba(0,0,0,0.8);color:#0f0;font:11px monospace;padding:8px 12px;border-radius:6px;z-index:9999;line-height:1.8;pointer-events:none';
-document.body.appendChild(_dbg);
-audio.addEventListener('timeupdate', () => {
-  const ms = audio.currentTime * 1000;
-  const cur = ALL_WPS[_navIdx];
-  const calc = (() => {
-    let idx = -1;
-    for (let i = 0; i < ALL_WPS.length; i++) {
-      if (ALL_WPS[i].start <= ms) idx = i; else break;
-    }
-    return idx;
-  })();
-  const hlMs = (_navIdx !== null && ALL_WPS[_navIdx]) ? ALL_WPS[_navIdx].start : ms;
-  const mode = _navIdx !== null ? 'exact' : 'range';
-  _dbg.innerHTML =
-    `currentTime: ${ms.toFixed(1)} ms<br>` +
-    `_navIdx: ${_navIdx} / total: ${ALL_WPS.length}<br>` +
-    `nav word: ${cur ? `[${cur.ch}] "${cur.word}" @${cur.start}` : '-'}<br>` +
-    `calc idx: ${calc} → "${ALL_WPS[calc]?.word ?? '-'}" @${ALL_WPS[calc]?.start ?? '-'}<br>` +
-    `highlight: ${mode} @ ${hlMs}`;
-});
+// const _dbg = document.createElement('div');
+// _dbg.style.cssText = 'position:fixed;bottom:8px;right:8px;background:rgba(0,0,0,0.8);color:#0f0;font:11px monospace;padding:8px 12px;border-radius:6px;z-index:9999;line-height:1.8;pointer-events:none';
+// document.body.appendChild(_dbg);
+// audio.addEventListener('timeupdate', () => {
+//   const ms = audio.currentTime * 1000;
+//   const cur = ALL_WPS[_navIdx];
+//   const calc = (() => {
+//     let idx = -1;
+//     for (let i = 0; i < ALL_WPS.length; i++) {
+//       if (ALL_WPS[i].start <= ms) idx = i; else break;
+//     }
+//     return idx;
+//   })();
+//   const hlMs = (_navIdx !== null && ALL_WPS[_navIdx]) ? ALL_WPS[_navIdx].start : ms;
+//   const mode = _navIdx !== null ? 'exact' : 'range';
+//   _dbg.innerHTML =
+//     `currentTime: ${ms.toFixed(1)} ms<br>` +
+//     `_navIdx: ${_navIdx} / total: ${ALL_WPS.length}<br>` +
+//     `nav word: ${cur ? `[${cur.ch}] "${cur.word}" @${cur.start}` : '-'}<br>` +
+//     `calc idx: ${calc} → "${ALL_WPS[calc]?.word ?? '-'}" @${ALL_WPS[calc]?.start ?? '-'}<br>` +
+//     `highlight: ${mode} @ ${hlMs}`;
+// });
 
 document.addEventListener('keydown', e => {
   if (e.key === 'F5' || (e.ctrlKey && e.key === 'r') || (e.metaKey && e.key === 'r')) {
@@ -1074,7 +1104,7 @@ document.addEventListener('keydown', e => {
     _navTs = Date.now();
     updateHighlight(ALL_WPS[_navIdx].start);
   }
-  if (e.key === 'Enter' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+  if (e.key === 'Enter' && e.target.tagName !== 'INPUT') {
     const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
     if (activeTab === 'edit') {
       e.preventDefault();
