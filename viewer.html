@@ -230,25 +230,25 @@
     .edit-bubble {
       max-width: 68%; padding: 10px 14px;
       border-radius: 18px; font-size: 14px; line-height: 1.65;
-      border: 2px solid transparent; cursor: pointer; transition: all 0.15s;
+      border: 1px solid transparent; transition: all 0.15s;
       word-break: keep-all;
     }
     .edit-bubble.left { background: #fff; border-color: #e8e8ec; border-top-left-radius: 4px; }
     .edit-bubble.right { background: #0f3460; color: #fff; border-top-right-radius: 4px; }
-    .edit-bubble.focused { border-color: #e94560 !important; }
-    .edit-bubble.playing-edit { outline: 2.5px solid rgba(233,69,96,0.4); outline-offset: 1px; }
-    .edit-original {
-      font-size: 11px; opacity: 0.38; margin-bottom: 5px;
-      text-decoration: line-through; word-break: keep-all;
+    .edit-word {
+      cursor: pointer; border-radius: 3px; padding: 0 1px;
+      border: 1.5px solid transparent; transition: all 0.12s;
     }
-    .edit-text { word-break: keep-all; }
-    .edit-text.modified { color: #1a7a1a; }
-    .edit-bubble.right .edit-text.modified { color: #7eff7e; }
-    .edit-input {
-      width: 100%; border: none; background: transparent;
-      font-size: 14px; font-family: inherit; line-height: 1.65;
-      color: inherit; resize: none; outline: none; padding: 0;
-      display: block;
+    .edit-word:hover { background: rgba(233,69,96,0.12); }
+    .edit-bubble.right .edit-word:hover { background: rgba(255,255,255,0.15); }
+    .edit-word.focused { border-color: #e94560; background: rgba(233,69,96,0.08); }
+    .edit-bubble.right .edit-word.focused { background: rgba(233,69,96,0.25); }
+    .edit-word.modified { color: #1a7a1a; }
+    .edit-bubble.right .edit-word.modified { color: #7eff7e; }
+    .edit-word-input {
+      border: none; border-bottom: 1.5px solid #e94560;
+      background: transparent; font-size: 14px; font-family: inherit;
+      color: inherit; outline: none; padding: 0 1px;
     }
     .edit-time { display: block; font-size: 10px; opacity: 0.4; margin-top: 4px; text-align: right; }
 
@@ -728,38 +728,58 @@ async function writeEditFile(side) {
 // ══════════════════════════════════════════════
 function buildEditTimeline() {
   const items = [];
-  LEFT_RAW.forEach((s, i) => items.push({
-    ch: 'left', idx: i,
-    original: s.sentence,
-    edited: LEFT_EDIT[i]?.sentence ?? s.sentence,
-    start: getStart(s), end: getEnd(s),
-  }));
-  RIGHT_RAW.forEach((s, i) => items.push({
-    ch: 'right', idx: i,
-    original: s.sentence,
-    edited: RIGHT_EDIT[i]?.sentence ?? s.sentence,
-    start: getStart(s), end: getEnd(s),
-  }));
+  LEFT_RAW.forEach((s, si) => {
+    s.word_pieces.forEach((wp, wi) => items.push({
+      ch: 'left', sentIdx: si, wpIdx: wi,
+      original: wp.word,
+      edited: LEFT_EDIT[si]?.word_pieces[wi]?.word ?? wp.word,
+      start: wp.start, end: wp.end,
+    }));
+  });
+  RIGHT_RAW.forEach((s, si) => {
+    s.word_pieces.forEach((wp, wi) => items.push({
+      ch: 'right', sentIdx: si, wpIdx: wi,
+      original: wp.word,
+      edited: RIGHT_EDIT[si]?.word_pieces[wi]?.word ?? wp.word,
+      start: wp.start, end: wp.end,
+    }));
+  });
   items.sort((a, b) => a.start - b.start);
   return items;
 }
 
 function renderEditTab() {
-  return _editTimeline.map((item, ti) => {
-    const modified = item.edited !== item.original;
-    return `<div class="edit-bubble-row ${item.ch}">
-      <div class="edit-bubble ${item.ch}" data-ti="${ti}" data-ch="${item.ch}" data-idx="${item.idx}" data-start="${item.start}" data-end="${item.end}" onclick="clickEditBubble(${ti})">
-        <div class="edit-original">${item.original}</div>
-        <div class="edit-text${modified ? ' modified' : ''}">${item.edited}</div>
-        <span class="edit-time">${fmtTimeDetail(item.start)}</span>
+  const html = [];
+  let curCh = null, curWords = [];
+
+  function flushBubble() {
+    if (!curWords.length) return;
+    const start = curWords[0].start;
+    const end = curWords[curWords.length - 1].end;
+    const wordsHtml = curWords.map(({ item, ti }) => {
+      const modified = item.edited !== item.original;
+      return `<span class="edit-word${modified ? ' modified' : ''}" data-ti="${ti}" data-start="${item.start}" onclick="clickEditWord(${ti})">${item.edited}</span>`;
+    }).join(' ');
+    html.push(`<div class="edit-bubble-row ${curCh}">
+      <div class="edit-bubble ${curCh}" data-start="${start}" data-end="${end}">
+        <span class="text">${wordsHtml}</span>
+        <span class="edit-time">${fmtTimeDetail(start)}</span>
       </div>
-    </div>`;
-  }).join('\n');
+    </div>`);
+    curWords = [];
+  }
+
+  _editTimeline.forEach((item, ti) => {
+    if (item.ch !== curCh) { flushBubble(); curCh = item.ch; }
+    curWords.push({ item, ti });
+  });
+  flushBubble();
+  return html.join('\n');
 }
 
-function focusEditBubble(ti) {
-  document.querySelectorAll('.edit-bubble.focused').forEach(el => el.classList.remove('focused'));
-  const el = document.querySelector(`.edit-bubble[data-ti="${ti}"]`);
+function focusEditWord(ti) {
+  document.querySelectorAll('.edit-word.focused').forEach(el => el.classList.remove('focused'));
+  const el = document.querySelector(`.edit-word[data-ti="${ti}"]`);
   if (!el) return;
   el.classList.add('focused');
   const panel = document.getElementById('panel-edit');
@@ -772,55 +792,51 @@ function focusEditBubble(ti) {
   }
 }
 
-function clickEditBubble(ti) {
+function clickEditWord(ti) {
+  if (document.querySelector('.edit-word.editing')) cancelEditBubble();
   _editIdx = ti;
-  focusEditBubble(ti);
+  focusEditWord(ti);
   const item = _editTimeline[ti];
   audio.currentTime = item.start / 1000;
   _navIdx = null;
 }
 
 function openEditBubble() {
-  const el = document.querySelector(`.edit-bubble[data-ti="${_editIdx}"]`);
+  const el = document.querySelector(`.edit-word[data-ti="${_editIdx}"]`);
   if (!el || el.classList.contains('editing')) return;
   el.classList.add('editing');
-  const textDiv = el.querySelector('.edit-text');
-  const current = textDiv.textContent;
-  textDiv.innerHTML = `<textarea class="edit-input" rows="1">${current}</textarea>`;
-  const ta = textDiv.querySelector('textarea');
-  ta.style.height = ta.scrollHeight + 'px';
-  ta.focus();
-  ta.setSelectionRange(ta.value.length, ta.value.length);
+  const current = el.textContent;
+  el.innerHTML = `<input class="edit-word-input" type="text" value="${current.replace(/"/g, '&quot;')}">`;
+  const inp = el.querySelector('input');
+  inp.size = Math.max(inp.value.length + 2, 3);
+  inp.focus();
+  inp.select();
 }
 
 async function saveEditBubble() {
-  const el = document.querySelector(`.edit-bubble.editing[data-ti="${_editIdx}"]`);
+  const el = document.querySelector(`.edit-word.editing[data-ti="${_editIdx}"]`);
   if (!el) return;
-  const ta = el.querySelector('.edit-input');
-  const newText = ta ? ta.value.trim() : '';
-  const ch = el.dataset.ch;
-  const idx = parseInt(el.dataset.idx);
+  const inp = el.querySelector('input');
+  const newText = inp ? inp.value.trim() : '';
   const ti = parseInt(el.dataset.ti);
+  const item = _editTimeline[ti];
 
   el.classList.remove('editing');
-  const textDiv = el.querySelector('.edit-text');
-  const original = _editTimeline[ti].original;
-  textDiv.textContent = newText;
-  textDiv.className = 'edit-text' + (newText !== original ? ' modified' : '');
+  el.textContent = newText;
+  el.className = 'edit-word' + (newText !== item.original ? ' modified' : '') + ' focused';
   _editTimeline[ti].edited = newText;
 
-  if (ch === 'left') LEFT_EDIT[idx].sentence = newText;
-  else RIGHT_EDIT[idx].sentence = newText;
-  await writeEditFile(ch);
+  if (item.ch === 'left') LEFT_EDIT[item.sentIdx].word_pieces[item.wpIdx].word = newText;
+  else RIGHT_EDIT[item.sentIdx].word_pieces[item.wpIdx].word = newText;
+  await writeEditFile(item.ch);
 }
 
 function cancelEditBubble() {
-  const el = document.querySelector(`.edit-bubble.editing[data-ti="${_editIdx}"]`);
+  const el = document.querySelector(`.edit-word.editing[data-ti="${_editIdx}"]`);
   if (!el) return;
   const ti = parseInt(el.dataset.ti);
   el.classList.remove('editing');
-  const textDiv = el.querySelector('.edit-text');
-  textDiv.innerHTML = _editTimeline[ti].edited;
+  el.textContent = _editTimeline[ti].edited;
 }
 
 // ══════════════════════════════════════════════
@@ -834,7 +850,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.querySelectorAll('.chat-panel').forEach(p => p.classList.remove('active'));
     const panelId = tab === 'wordpiece' ? 'panel-wordpiece' : tab === 'inline-chip' ? 'panel-inline-chip' : 'panel-edit';
     document.getElementById(panelId).classList.add('active');
-    if (tab === 'edit') focusEditBubble(_editIdx);
+    if (tab === 'edit') focusEditWord(_editIdx);
   });
 });
 
@@ -1004,10 +1020,10 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
     if (activeTab === 'edit') {
-      if (document.querySelector('.edit-bubble.editing')) return;
+      if (document.querySelector('.edit-word.editing')) return;
       if (e.key === 'ArrowRight') _editIdx = Math.min(_editTimeline.length - 1, _editIdx + 1);
       else _editIdx = Math.max(0, _editIdx - 1);
-      focusEditBubble(_editIdx);
+      focusEditWord(_editIdx);
       const item = _editTimeline[_editIdx];
       audio.currentTime = item.start / 1000;
       _navIdx = null;
@@ -1034,21 +1050,21 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
     if (activeTab === 'edit') {
-      if (document.querySelector('.edit-bubble.editing')) return;
-      const curEl = document.querySelector(`.edit-bubble[data-ti="${_editIdx}"]`);
+      if (document.querySelector('.edit-word.editing')) return;
+      const curEl = document.querySelector(`.edit-word[data-ti="${_editIdx}"]`);
       if (!curEl) return;
       const curRect = curEl.getBoundingClientRect();
       const curCenterX = curRect.left + curRect.width / 2;
       const panel = document.getElementById('panel-edit');
-      const allBubbles = [...panel.querySelectorAll('.edit-bubble')];
+      const allWords = [...panel.querySelectorAll('.edit-word[data-ti]')];
       let candidates;
       if (e.key === 'ArrowDown') {
-        candidates = allBubbles.filter(el => el.getBoundingClientRect().top > curRect.bottom - 2);
+        candidates = allWords.filter(el => el.getBoundingClientRect().top > curRect.bottom - 2);
         if (!candidates.length) return;
         const minTop = Math.min(...candidates.map(el => el.getBoundingClientRect().top));
         candidates = candidates.filter(el => el.getBoundingClientRect().top <= minTop + curRect.height);
       } else {
-        candidates = allBubbles.filter(el => el.getBoundingClientRect().bottom < curRect.top + 2);
+        candidates = allWords.filter(el => el.getBoundingClientRect().bottom < curRect.top + 2);
         if (!candidates.length) return;
         const maxBottom = Math.max(...candidates.map(el => el.getBoundingClientRect().bottom));
         candidates = candidates.filter(el => el.getBoundingClientRect().bottom >= maxBottom - curRect.height);
@@ -1059,7 +1075,7 @@ document.addEventListener('keydown', e => {
         return Math.abs(cx - curCenterX) < Math.abs(bestCx - curCenterX) ? el : best;
       });
       _editIdx = parseInt(target.dataset.ti);
-      focusEditBubble(_editIdx);
+      focusEditWord(_editIdx);
       const item = _editTimeline[_editIdx];
       audio.currentTime = item.start / 1000;
       _navIdx = null;
@@ -1104,11 +1120,11 @@ document.addEventListener('keydown', e => {
     _navTs = Date.now();
     updateHighlight(ALL_WPS[_navIdx].start);
   }
-  if (e.key === 'Enter' && e.target.tagName !== 'INPUT') {
+  if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') {
     const activeTab = document.querySelector('.tab-btn.active')?.dataset.tab;
     if (activeTab === 'edit') {
       e.preventDefault();
-      const editing = document.querySelector(`.edit-bubble.editing[data-ti="${_editIdx}"]`);
+      const editing = document.querySelector(`.edit-word.editing[data-ti="${_editIdx}"]`);
       if (editing) saveEditBubble();
       else openEditBubble();
     }
